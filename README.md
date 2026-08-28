@@ -4,7 +4,7 @@ A portable, modular Linux dotfiles repository designed for long-term backup and 
 
 ---
 
-## 🚀 Quick Start & Automated Installation
+## Quick Start & Automated Installation
 
 To restore and set up this configuration on any Linux system (Arch, Fedora, Ubuntu/Debian):
 
@@ -23,7 +23,7 @@ The `./install.sh` script automatically detects your distribution package manage
 
 ---
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```text
 ~/.config/
@@ -49,7 +49,7 @@ The `./install.sh` script automatically detects your distribution package manage
 
 ---
 
-## ⚡ Hyprland Edge Workspace Switcher
+## Hyprland Edge Workspace Switcher
 
 This repository contains a **pure Wayland event-driven mouse-edge workspace switcher** built for Hyprland 0.56.2+.
 
@@ -70,7 +70,7 @@ The binary `hypr-edge-switcher` is automatically launched by `hypr/custom.lua` w
 
 ---
 
-## ⚙️ Dependencies & Package List
+## Dependencies & Package List
 
 Installed automatically by `./install.sh`:
 - **Compositors & Environments**: `hyprland`, `waybar`, `kitty`, `fuzzel`, `rofi-wayland`, `swaync`, `quickshell`
@@ -79,7 +79,7 @@ Installed automatically by `./install.sh`:
 
 ---
 
-## ⚙️ Machine-Specific Setup
+## Machine-Specific Setup
 
 1. **Monitors**:
    Copy the template and set your display outputs:
@@ -93,7 +93,7 @@ Installed automatically by `./install.sh`:
 
 ---
 
-## 🔒 Secrets & Exclusions
+## Secrets & Exclusions
 
 The `.gitignore` in this repository automatically excludes:
 - Credentials & tokens (`gh/`, `.env`, `*_token`, `*.pem`, `*.key`)

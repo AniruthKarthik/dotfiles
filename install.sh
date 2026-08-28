@@ -135,7 +135,7 @@ esac
 echo -e "\n${BLUE}Building Hyprland edge workspace switcher helper...${NC}"
 if [ -f "$HOME/.config/hypr/scripts/Makefile" ]; then
     make -C "$HOME/.config/hypr/scripts" clean && make -C "$HOME/.config/hypr/scripts"
-    echo -e "${GREEN}✓ Edge switcher binary built successfully.${NC}"
+    echo -e "${GREEN}Edge switcher binary built successfully.${NC}"
 fi
 
 echo -e "\n${GREEN}=== Installation Complete! ===${NC}"
