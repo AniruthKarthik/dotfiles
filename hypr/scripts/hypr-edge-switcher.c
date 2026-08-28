@@ -50,6 +50,7 @@ static void send_hyprland_cmd(const char *cmd) {
 
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0) {
         write(fd, cmd, strlen(cmd));
+        write(fd, "\n", 1);
     }
     close(fd);
 }
@@ -72,7 +73,7 @@ static void fetch_monitor_topology(void) {
         return;
     }
 
-    write(fd, "j/monitors", 10);
+    write(fd, "j/monitors\n", 11);
 
     char buf[16384];
     ssize_t n = read(fd, buf, sizeof(buf) - 1);
@@ -156,7 +157,6 @@ struct wl_shm *shm = NULL;
 struct zwlr_layer_shell_v1 *layer_shell = NULL;
 struct wl_seat *seat = NULL;
 struct wl_pointer *pointer = NULL;
-struct wl_buffer *transparent_buf = NULL;
 
 typedef struct {
     struct wl_output *output;
@@ -164,11 +164,14 @@ typedef struct {
     int is_left;
     struct wl_surface *surface;
     struct zwlr_layer_surface_v1 *layer_surface;
+    struct wl_buffer *buffer;
 } EdgeSurface;
 
 #define MAX_SURFACES 32
 static EdgeSurface edge_surfaces[MAX_SURFACES];
 static int num_surfaces = 0;
+static struct wl_output *wl_outputs[MAX_MONITORS];
+static int num_wl_outputs = 0;
 static int active_trigger = 0;
 
 static void pointer_enter(void *data, struct wl_pointer *pointer, uint32_t serial,
@@ -227,9 +230,44 @@ static const struct wl_seat_listener seat_listener = {
     .name = seat_name,
 };
 
-static void layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *surface,
+static struct wl_buffer *create_transparent_buffer(struct wl_shm *shm, int width, int height) {
+    if (width <= 0) width = 1;
+    if (height <= 0) height = 2000;
+    int stride = width * 4;
+    int size = stride * height;
+
+    int fd = memfd_create("shm-edge", MFD_CLOEXEC);
+    if (fd < 0) return NULL;
+    if (ftruncate(fd, size) < 0) { close(fd); return NULL; }
+
+    uint32_t *data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (data == MAP_FAILED) { close(fd); return NULL; }
+    memset(data, 0, size); // Fully transparent ARGB8888 pixels
+    munmap(data, size);
+
+    struct wl_shm_pool *pool = wl_shm_create_pool(shm, fd, size);
+    struct wl_buffer *buf = wl_shm_pool_create_buffer(pool, 0, width, height, stride, WL_SHM_FORMAT_ARGB8888);
+    wl_shm_pool_destroy(pool);
+    close(fd);
+    return buf;
+}
+
+static void layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *layer_surface,
                                     uint32_t serial, uint32_t width, uint32_t height) {
-    zwlr_layer_surface_v1_ack_configure(surface, serial);
+    zwlr_layer_surface_v1_ack_configure(layer_surface, serial);
+
+    for (int i = 0; i < num_surfaces; i++) {
+        if (edge_surfaces[i].layer_surface == layer_surface) {
+            if (shm && !edge_surfaces[i].buffer) {
+                edge_surfaces[i].buffer = create_transparent_buffer(shm, (int)width, (int)height);
+            }
+            if (edge_surfaces[i].buffer) {
+                wl_surface_attach(edge_surfaces[i].surface, edge_surfaces[i].buffer, 0, 0);
+                wl_surface_commit(edge_surfaces[i].surface);
+            }
+            break;
+        }
+    }
 }
 
 static void layer_surface_closed(void *data, struct zwlr_layer_surface_v1 *surface) {}
@@ -238,23 +276,6 @@ static const struct zwlr_layer_surface_v1_listener layer_surface_listener = {
     .configure = layer_surface_configure,
     .closed = layer_surface_closed,
 };
-
-static struct wl_buffer *create_transparent_buffer(struct wl_shm *shm) {
-    int fd = memfd_create("shm-edge", MFD_CLOEXEC);
-    if (fd < 0) return NULL;
-    if (ftruncate(fd, 4) < 0) { close(fd); return NULL; }
-
-    uint32_t *data = mmap(NULL, 4, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (data == MAP_FAILED) { close(fd); return NULL; }
-    *data = 0x00000000;
-    munmap(data, 4);
-
-    struct wl_shm_pool *pool = wl_shm_create_pool(shm, fd, 4);
-    struct wl_buffer *buf = wl_shm_pool_create_buffer(pool, 0, 1, 1, 4, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    close(fd);
-    return buf;
-}
 
 static void registry_global(void *data, struct wl_registry *registry,
                             uint32_t name, const char *interface, uint32_t version) {
@@ -269,8 +290,8 @@ static void registry_global(void *data, struct wl_registry *registry,
         wl_seat_add_listener(seat, &seat_listener, NULL);
     } else if (strcmp(interface, wl_output_interface.name) == 0) {
         struct wl_output *output = wl_registry_bind(registry, name, &wl_output_interface, 1);
-        if (num_surfaces < MAX_SURFACES) {
-            edge_surfaces[num_surfaces].output = output;
+        if (num_wl_outputs < MAX_MONITORS) {
+            wl_outputs[num_wl_outputs++] = output;
         }
     }
 }
@@ -292,21 +313,19 @@ static void setup_edge_surface(struct wl_output *output, int is_left) {
     struct zwlr_layer_surface_v1 *layer_surface = zwlr_layer_shell_v1_get_layer_surface(
         layer_shell, surface, output, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "edge-switcher");
 
+    edge_surfaces[num_surfaces].surface = surface;
+    edge_surfaces[num_surfaces].layer_surface = layer_surface;
+    edge_surfaces[num_surfaces].is_left = is_left;
+    edge_surfaces[num_surfaces].buffer = NULL;
+    num_surfaces++;
+
     zwlr_layer_surface_v1_set_size(layer_surface, 1, 0);
     zwlr_layer_surface_v1_set_anchor(layer_surface, anchor);
     zwlr_layer_surface_v1_set_exclusive_zone(layer_surface, -1);
     zwlr_layer_surface_v1_set_keyboard_interactivity(layer_surface, 0);
     zwlr_layer_surface_v1_add_listener(layer_surface, &layer_surface_listener, NULL);
 
-    if (transparent_buf) {
-        wl_surface_attach(surface, transparent_buf, 0, 0);
-    }
     wl_surface_commit(surface);
-
-    edge_surfaces[num_surfaces].surface = surface;
-    edge_surfaces[num_surfaces].layer_surface = layer_surface;
-    edge_surfaces[num_surfaces].is_left = is_left;
-    num_surfaces++;
 }
 
 int main(int argc, char *argv[]) {
@@ -325,20 +344,9 @@ int main(int argc, char *argv[]) {
     wl_registry_add_listener(registry, &registry_listener, NULL);
     wl_display_roundtrip(display);
 
-    if (shm) {
-        transparent_buf = create_transparent_buffer(shm);
-    }
-
-    int n_outputs = num_surfaces;
-    struct wl_output *outputs[MAX_SURFACES];
-    for (int i = 0; i < n_outputs; i++) {
-        outputs[i] = edge_surfaces[i].output;
-    }
-    num_surfaces = 0;
-
     for (int i = 0; i < num_monitors; i++) {
         MonitorInfo *m = &monitors[i];
-        struct wl_output *out = (i < n_outputs) ? outputs[i] : NULL;
+        struct wl_output *out = (i < num_wl_outputs) ? wl_outputs[i] : NULL;
 
         if (is_outer_edge(m, 1)) {
             setup_edge_surface(out, 1);

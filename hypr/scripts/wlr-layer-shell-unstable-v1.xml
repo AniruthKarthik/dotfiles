@@ -115,6 +115,11 @@
       <arg name="keyboard_interactivity" type="uint" enum="keyboard_interactivity"/>
     </request>
 
+    <request name="get_popup">
+      <description summary="assign this layer_surface as an xdg_popup parent"/>
+      <arg name="popup" type="object" interface="wl_surface"/>
+    </request>
+
     <request name="ack_configure">
       <description summary="ack a configure event"/>
       <arg name="serial" type="uint"/>
