@@ -4,6 +4,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <sys/file.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
@@ -27,6 +28,7 @@ typedef struct {
 static MonitorInfo monitors[MAX_MONITORS];
 static int num_monitors = 0;
 static char socket_path[512] = {0};
+static int waybar_is_hidden = 1;
 
 static void init_socket_path(void) {
     const char *xdg_runtime = getenv("XDG_RUNTIME_DIR");
@@ -53,6 +55,42 @@ static void send_hyprland_cmd(const char *cmd) {
         write(fd, "\n", 1);
     }
     close(fd);
+}
+
+static pid_t find_waybar_pid(void) {
+    FILE *fp = popen("pgrep -x waybar", "r");
+    if (!fp) return 0;
+    pid_t pid = 0;
+    if (fscanf(fp, "%d", &pid) != 1) pid = 0;
+    pclose(fp);
+    return pid;
+}
+
+static void set_waybar_visible(int show) {
+    char lock_path[512];
+    const char *home = getenv("HOME");
+    if (home) {
+        snprintf(lock_path, sizeof(lock_path), "%s/.cache/waybar_toggle.lock", home);
+        if (access(lock_path, F_OK) == 0) {
+            return; // Manual lock file active: keep Waybar visible
+        }
+    }
+
+    pid_t pid = find_waybar_pid();
+    if (show) {
+        if (pid <= 0) {
+            system("~/.config/waybar/launch.sh >/dev/null 2>&1 &");
+            waybar_is_hidden = 0;
+        } else if (waybar_is_hidden) {
+            kill(pid, SIGUSR1);
+            waybar_is_hidden = 0;
+        }
+    } else {
+        if (pid > 0 && !waybar_is_hidden) {
+            kill(pid, SIGUSR1);
+            waybar_is_hidden = 1;
+        }
+    }
 }
 
 // Minimal JSON parser to query monitor geometry from Hyprland IPC
@@ -127,8 +165,8 @@ static int point_in_rect(int px, int py, MonitorInfo *m) {
             py >= m->y && py < (m->y + m->height));
 }
 
-// Checks if a monitor boundary is exposed to empty space (far outer layout edge)
-static int is_outer_edge(MonitorInfo *mon, int check_left) {
+// Checks if a monitor side boundary is exposed to empty space (far outer layout edge)
+static int is_outer_side_edge(MonitorInfo *mon, int check_left) {
     int test_x = check_left ? (mon->x - 1) : (mon->x + mon->width);
     int sample_points[] = {
         mon->y + 5,
@@ -146,8 +184,36 @@ static int is_outer_edge(MonitorInfo *mon, int check_left) {
             }
         }
     }
-    return 1; // Far outer layout edge
+    return 1; // Outer side layout edge
 }
+
+// Checks if a monitor top boundary is exposed to empty space (far outer top edge)
+static int is_outer_top_edge(MonitorInfo *mon) {
+    int test_y = mon->y - 1;
+    int sample_points[] = {
+        mon->x + 5,
+        mon->x + mon->width / 2,
+        mon->x + mon->width - 5
+    };
+
+    for (int p = 0; p < 3; p++) {
+        int test_x = sample_points[p];
+        for (int i = 0; i < num_monitors; i++) {
+            MonitorInfo *other = &monitors[i];
+            if (other == mon || other->disabled) continue;
+            if (point_in_rect(test_x, test_y, other)) {
+                return 0; // Adjacent monitor above -> inter-monitor boundary
+            }
+        }
+    }
+    return 1; // Outer top layout edge
+}
+
+typedef enum {
+    EDGE_LEFT = 0,
+    EDGE_RIGHT = 1,
+    EDGE_TOP = 2
+} EdgeType;
 
 // Wayland State
 struct wl_display *display = NULL;
@@ -161,7 +227,7 @@ struct wl_pointer *pointer = NULL;
 typedef struct {
     struct wl_output *output;
     char name[64];
-    int is_left;
+    EdgeType type;
     struct wl_surface *surface;
     struct zwlr_layer_surface_v1 *layer_surface;
     struct wl_buffer *buffer;
@@ -172,19 +238,24 @@ static EdgeSurface edge_surfaces[MAX_SURFACES];
 static int num_surfaces = 0;
 static struct wl_output *wl_outputs[MAX_MONITORS];
 static int num_wl_outputs = 0;
-static int active_trigger = 0;
+static int active_side_trigger = 0;
 
 static void pointer_enter(void *data, struct wl_pointer *pointer, uint32_t serial,
                           struct wl_surface *surface, wl_fixed_t sx, wl_fixed_t sy) {
-    if (active_trigger) return;
-
     for (int i = 0; i < num_surfaces; i++) {
         if (edge_surfaces[i].surface == surface) {
-            active_trigger = 1;
-            if (edge_surfaces[i].is_left) {
-                send_hyprland_cmd("eval hl.dispatch(hl.dsp.focus({ workspace = 'e-1' }))");
-            } else {
-                send_hyprland_cmd("eval hl.dispatch(hl.dsp.focus({ workspace = 'e+1' }))");
+            if (edge_surfaces[i].type == EDGE_LEFT) {
+                if (!active_side_trigger) {
+                    active_side_trigger = 1;
+                    send_hyprland_cmd("eval hl.dispatch(hl.dsp.focus({ workspace = 'e-1' }))");
+                }
+            } else if (edge_surfaces[i].type == EDGE_RIGHT) {
+                if (!active_side_trigger) {
+                    active_side_trigger = 1;
+                    send_hyprland_cmd("eval hl.dispatch(hl.dsp.focus({ workspace = 'e+1' }))");
+                }
+            } else if (edge_surfaces[i].type == EDGE_TOP) {
+                set_waybar_visible(1); // Reveal Waybar on top edge enter
             }
             break;
         }
@@ -193,7 +264,16 @@ static void pointer_enter(void *data, struct wl_pointer *pointer, uint32_t seria
 
 static void pointer_leave(void *data, struct wl_pointer *pointer, uint32_t serial,
                           struct wl_surface *surface) {
-    active_trigger = 0; // Re-arm trigger upon inward movement
+    for (int i = 0; i < num_surfaces; i++) {
+        if (edge_surfaces[i].surface == surface) {
+            if (edge_surfaces[i].type == EDGE_LEFT || edge_surfaces[i].type == EDGE_RIGHT) {
+                active_side_trigger = 0; // Re-arm workspace trigger upon inward movement
+            } else if (edge_surfaces[i].type == EDGE_TOP) {
+                set_waybar_visible(0); // Hide Waybar on top edge leave
+            }
+            break;
+        }
+    }
 }
 
 static void pointer_motion(void *data, struct wl_pointer *pointer, uint32_t time, wl_fixed_t sx, wl_fixed_t sy) {}
@@ -232,7 +312,7 @@ static const struct wl_seat_listener seat_listener = {
 
 static struct wl_buffer *create_transparent_buffer(struct wl_shm *shm, int width, int height) {
     if (width <= 0) width = 1;
-    if (height <= 0) height = 2000;
+    if (height <= 0) height = 1;
     int stride = width * 4;
     int size = stride * height;
 
@@ -303,23 +383,34 @@ static const struct wl_registry_listener registry_listener = {
     .global_remove = registry_global_remove,
 };
 
-static void setup_edge_surface(struct wl_output *output, int is_left) {
+static void setup_edge_surface(struct wl_output *output, EdgeType type) {
     if (!compositor || !layer_shell || num_surfaces >= MAX_SURFACES) return;
 
     struct wl_surface *surface = wl_compositor_create_surface(compositor);
-    uint32_t anchor = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM |
-                      (is_left ? ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT : ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
+    uint32_t anchor = 0;
+    uint32_t width = 0, height = 0;
+
+    if (type == EDGE_LEFT) {
+        anchor = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT;
+        width = 1; height = 0;
+    } else if (type == EDGE_RIGHT) {
+        anchor = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
+        width = 1; height = 0;
+    } else if (type == EDGE_TOP) {
+        anchor = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
+        width = 0; height = 3; // 3-pixel tall hover target along top edge
+    }
 
     struct zwlr_layer_surface_v1 *layer_surface = zwlr_layer_shell_v1_get_layer_surface(
-        layer_shell, surface, output, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "edge-switcher");
+        layer_shell, surface, output, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "edge-events");
 
     edge_surfaces[num_surfaces].surface = surface;
     edge_surfaces[num_surfaces].layer_surface = layer_surface;
-    edge_surfaces[num_surfaces].is_left = is_left;
+    edge_surfaces[num_surfaces].type = type;
     edge_surfaces[num_surfaces].buffer = NULL;
     num_surfaces++;
 
-    zwlr_layer_surface_v1_set_size(layer_surface, 1, 0);
+    zwlr_layer_surface_v1_set_size(layer_surface, width, height);
     zwlr_layer_surface_v1_set_anchor(layer_surface, anchor);
     zwlr_layer_surface_v1_set_exclusive_zone(layer_surface, -1);
     zwlr_layer_surface_v1_set_keyboard_interactivity(layer_surface, 0);
@@ -348,11 +439,14 @@ int main(int argc, char *argv[]) {
         MonitorInfo *m = &monitors[i];
         struct wl_output *out = (i < num_wl_outputs) ? wl_outputs[i] : NULL;
 
-        if (is_outer_edge(m, 1)) {
-            setup_edge_surface(out, 1);
+        if (is_outer_side_edge(m, 1)) {
+            setup_edge_surface(out, EDGE_LEFT);
         }
-        if (is_outer_edge(m, 0)) {
-            setup_edge_surface(out, 0);
+        if (is_outer_side_edge(m, 0)) {
+            setup_edge_surface(out, EDGE_RIGHT);
+        }
+        if (is_outer_top_edge(m)) {
+            setup_edge_surface(out, EDGE_TOP);
         }
     }
 
