@@ -26,23 +26,41 @@ fi
 
 echo -e "Detected OS: ${GREEN}${NAME:-$OS}${NC}"
 
-# Package lists per distribution
+# Comprehensive package lists per distribution
 ARCH_PKGS=(
     hyprland
+    hyprpaper
+    hyprlock
+    hypridle
+    hyprpicker
+    hyprsunset
     waybar
     kitty
     fuzzel
     flameshot
     rofi-wayland
     swaync
-    fastfetch
-    oh-my-posh
-    qt6ct
-    pavucontrol
     grim
     slurp
     wl-clipboard
     cliphist
+    playerctl
+    brightnessctl
+    pamixer
+    pavucontrol
+    network-manager-applet
+    jq
+    bc
+    imagemagick
+    tesseract
+    tesseract-data-eng
+    btop
+    fastfetch
+    oh-my-posh
+    fish
+    neovim
+    nwg-look
+    qt6ct
     gcc
     make
     pkg-config
@@ -53,19 +71,37 @@ ARCH_PKGS=(
 
 FEDORA_PKGS=(
     hyprland
+    hyprpaper
+    hyprlock
+    hypridle
+    hyprpicker
+    hyprsunset
     waybar
     kitty
     fuzzel
     flameshot
     rofi-wayland
     SwayNotificationCenter
-    fastfetch
-    qt6ct
-    pavucontrol
     grim
     slurp
     wl-clipboard
     cliphist
+    playerctl
+    brightnessctl
+    pamixer
+    pavucontrol
+    network-manager-applet
+    jq
+    bc
+    ImageMagick
+    tesseract
+    tesseract-langpack-eng
+    btop
+    fastfetch
+    fish
+    neovim
+    nwg-look
+    qt6ct
     gcc
     make
     pkgconfig
@@ -75,18 +111,34 @@ FEDORA_PKGS=(
 
 DEBIAN_PKGS=(
     hyprland
+    hyprpaper
+    hyprlock
+    hypridle
+    hyprpicker
     waybar
     kitty
     fuzzel
     flameshot
     sway-notification-center
-    fastfetch
-    qt6ct
-    pavucontrol
     grim
     slurp
     wl-clipboard
     cliphist
+    playerctl
+    brightnessctl
+    pamixer
+    pavucontrol
+    network-manager-gnome
+    jq
+    bc
+    imagemagick
+    tesseract-ocr
+    tesseract-ocr-eng
+    btop
+    fastfetch
+    fish
+    neovim
+    qt6ct
     gcc
     make
     pkg-config
@@ -97,17 +149,17 @@ DEBIAN_PKGS=(
 
 install_arch() {
     echo -e "\n${BLUE}Installing packages via pacman...${NC}"
-    sudo pacman -S --needed --noconfirm "${ARCH_PKGS[@]}"
+    sudo pacman -S --needed --noconfirm "${ARCH_PKGS[@]}" || true
 }
 
 install_fedora() {
     echo -e "\n${BLUE}Installing packages via dnf...${NC}"
-    sudo dnf install -y "${FEDORA_PKGS[@]}"
+    sudo dnf install -y "${FEDORA_PKGS[@]}" || true
 }
 
 install_debian() {
     echo -e "\n${BLUE}Installing packages via apt...${NC}"
-    sudo apt update && sudo apt install -y "${DEBIAN_PKGS[@]}"
+    sudo apt update && sudo apt install -y "${DEBIAN_PKGS[@]}" || true
 }
 
 case "$OS" in

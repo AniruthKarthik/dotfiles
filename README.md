@@ -73,9 +73,11 @@ The binary `hypr-edge-switcher` is automatically launched by `hypr/custom.lua` w
 ## Dependencies & Package List
 
 Installed automatically by `./install.sh`:
-- **Compositors & Environments**: `hyprland`, `waybar`, `kitty`, `fuzzel`, `flameshot`, `rofi-wayland`, `swaync`, `quickshell`
-- **Development & Build**: `gcc`, `make`, `wayland-scanner`, `wayland-protocols`, `wayland-client`
-- **Shell & System Tools**: `fish`, `neovim`, `fastfetch`, `oh-my-posh`, `grim`, `slurp`, `wl-clipboard`, `cliphist`
+- **Desktop & Compositor**: `hyprland`, `hyprpaper`, `hyprlock`, `hypridle`, `hyprpicker`, `hyprsunset`, `waybar`, `kitty`, `fuzzel`, `flameshot`, `rofi-wayland`, `swaync`
+- **Media & Audio Controls**: `playerctl`, `brightnessctl`, `pamixer`, `pavucontrol`, `network-manager-applet`
+- **Utilities & OCR**: `grim`, `slurp`, `wl-clipboard`, `cliphist`, `jq`, `bc`, `imagemagick`, `tesseract`
+- **Shell & Tools**: `fish`, `neovim`, `btop`, `fastfetch`, `oh-my-posh`, `nwg-look`, `qt6ct`
+- **Build Chain**: `gcc`, `make`, `pkg-config`, `wayland-scanner`, `wayland-protocols`, `gtk-layer-shell`
 
 ---
 
