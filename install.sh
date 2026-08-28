@@ -32,6 +32,7 @@ ARCH_PKGS=(
     waybar
     kitty
     fuzzel
+    flameshot
     rofi-wayland
     swaync
     fastfetch
@@ -55,6 +56,7 @@ FEDORA_PKGS=(
     waybar
     kitty
     fuzzel
+    flameshot
     rofi-wayland
     SwayNotificationCenter
     fastfetch
@@ -76,6 +78,7 @@ DEBIAN_PKGS=(
     waybar
     kitty
     fuzzel
+    flameshot
     sway-notification-center
     fastfetch
     qt6ct
