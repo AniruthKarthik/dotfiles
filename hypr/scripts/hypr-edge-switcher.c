@@ -1,13 +1,31 @@
-#include <gtk/gtk.h>
-#include <gtk-layer-shell/gtk-layer-shell.h>
-#include <sys/file.h>
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <unistd.h>
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/file.h>
+#include <sys/mman.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <wayland-client.h>
+#include "wlr-layer-shell-unstable-v1-client-protocol.h"
 
+#define MAX_MONITORS 16
+
+typedef struct {
+    int id;
+    char name[64];
+    int x;
+    int y;
+    int width;
+    int height;
+    float scale;
+    int disabled;
+} MonitorInfo;
+
+static MonitorInfo monitors[MAX_MONITORS];
+static int num_monitors = 0;
 static char socket_path[512] = {0};
 
 static void init_socket_path(void) {
@@ -36,128 +54,303 @@ static void send_hyprland_cmd(const char *cmd) {
     close(fd);
 }
 
-typedef struct {
-    gboolean is_left;
-    gboolean triggered;
-} EdgeContext;
+// Minimal JSON parser to query monitor geometry from Hyprland IPC
+static void fetch_monitor_topology(void) {
+    if (socket_path[0] == '\0') init_socket_path();
+    if (socket_path[0] == '\0') return;
 
-static gboolean on_enter_edge(GtkWidget *widget, GdkEventCrossing *event, gpointer data) {
-    EdgeContext *ctx = (EdgeContext *)data;
-    if (!ctx->triggered) {
-        ctx->triggered = TRUE;
-        if (ctx->is_left) {
-            send_hyprland_cmd("eval hl.dispatch(hl.dsp.focus({ workspace = 'e-1' }))");
-        } else {
-            send_hyprland_cmd("eval hl.dispatch(hl.dsp.focus({ workspace = 'e+1' }))");
-        }
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return;
+
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path) - 1);
+
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        close(fd);
+        return;
     }
-    return TRUE;
+
+    write(fd, "j/monitors", 10);
+
+    char buf[16384];
+    ssize_t n = read(fd, buf, sizeof(buf) - 1);
+    close(fd);
+
+    if (n <= 0) return;
+    buf[n] = '\0';
+
+    num_monitors = 0;
+    char *ptr = buf;
+    while ((ptr = strstr(ptr, "\"name\":")) != NULL && num_monitors < MAX_MONITORS) {
+        MonitorInfo *m = &monitors[num_monitors];
+        memset(m, 0, sizeof(MonitorInfo));
+
+        sscanf(ptr, "\"name\": \"%63[^\"]\"", m->name);
+
+        char *px = strstr(ptr, "\"x\":");
+        if (px) m->x = atoi(px + 4);
+
+        char *py = strstr(ptr, "\"y\":");
+        if (py) m->y = atoi(py + 4);
+
+        char *pw = strstr(ptr, "\"width\":");
+        if (pw) m->width = atoi(pw + 8);
+
+        char *ph = strstr(ptr, "\"height\":");
+        if (ph) m->height = atoi(ph + 9);
+
+        char *ps = strstr(ptr, "\"scale\":");
+        if (ps) m->scale = atof(ps + 8);
+
+        char *pd = strstr(ptr, "\"disabled\":");
+        if (pd && strncmp(pd + 11, "true", 4) == 0) {
+            m->disabled = 1;
+        }
+
+        if (m->scale > 0.01) {
+            m->width = (int)(m->width / m->scale);
+            m->height = (int)(m->height / m->scale);
+        }
+
+        if (!m->disabled) {
+            num_monitors++;
+        }
+        ptr += 7;
+    }
 }
 
-static gboolean on_leave_edge(GtkWidget *widget, GdkEventCrossing *event, gpointer data) {
-    EdgeContext *ctx = (EdgeContext *)data;
-    ctx->triggered = FALSE;
-    return TRUE;
+static int point_in_rect(int px, int py, MonitorInfo *m) {
+    return (px >= m->x && px < (m->x + m->width) &&
+            py >= m->y && py < (m->y + m->height));
 }
 
-static gboolean point_in_rect(int px, int py, GdkRectangle *r) {
-    return (px >= r->x && px < (r->x + r->width) &&
-            py >= r->y && py < (r->y + r->height));
-}
-
-// Determines if a monitor boundary is exposed to empty space (far outer edge of layout)
-static gboolean is_outer_edge(GdkDisplay *display, GdkRectangle *mon_geom, gboolean check_left) {
-    int n = gdk_display_get_n_monitors(display);
-    int test_x = check_left ? (mon_geom->x - 1) : (mon_geom->x + mon_geom->width);
-    
+// Checks if a monitor boundary is exposed to empty space (far outer layout edge)
+static int is_outer_edge(MonitorInfo *mon, int check_left) {
+    int test_x = check_left ? (mon->x - 1) : (mon->x + mon->width);
     int sample_points[] = {
-        mon_geom->y + 5,
-        mon_geom->y + mon_geom->height / 2,
-        mon_geom->y + mon_geom->height - 5
+        mon->y + 5,
+        mon->y + mon->height / 2,
+        mon->y + mon->height - 5
     };
 
     for (int p = 0; p < 3; p++) {
         int test_y = sample_points[p];
-        for (int i = 0; i < n; i++) {
-            GdkMonitor *m = gdk_display_get_monitor(display, i);
-            GdkRectangle g;
-            gdk_monitor_get_geometry(m, &g);
-
-            if (g.x == mon_geom->x && g.y == mon_geom->y &&
-                g.width == mon_geom->width && g.height == mon_geom->height) {
-                continue;
-            }
-
-            if (point_in_rect(test_x, test_y, &g)) {
-                return FALSE; // Inter-monitor boundary
+        for (int i = 0; i < num_monitors; i++) {
+            MonitorInfo *other = &monitors[i];
+            if (other == mon || other->disabled) continue;
+            if (point_in_rect(test_x, test_y, other)) {
+                return 0; // Inter-monitor boundary
             }
         }
     }
-    return TRUE; // True outer layout edge
+    return 1; // Far outer layout edge
 }
 
-static void create_edge_surface(GdkDisplay *display, GdkMonitor *monitor, GdkRectangle *mon_geom, gboolean is_left) {
-    GtkWidget *win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_layer_init_for_window(GTK_WINDOW(win));
-    
-    if (monitor) {
-        gtk_layer_set_monitor(GTK_WINDOW(win), monitor);
+// Wayland State
+struct wl_display *display = NULL;
+struct wl_registry *registry = NULL;
+struct wl_compositor *compositor = NULL;
+struct wl_shm *shm = NULL;
+struct zwlr_layer_shell_v1 *layer_shell = NULL;
+struct wl_seat *seat = NULL;
+struct wl_pointer *pointer = NULL;
+struct wl_buffer *transparent_buf = NULL;
+
+typedef struct {
+    struct wl_output *output;
+    char name[64];
+    int is_left;
+    struct wl_surface *surface;
+    struct zwlr_layer_surface_v1 *layer_surface;
+} EdgeSurface;
+
+#define MAX_SURFACES 32
+static EdgeSurface edge_surfaces[MAX_SURFACES];
+static int num_surfaces = 0;
+static int active_trigger = 0;
+
+static void pointer_enter(void *data, struct wl_pointer *pointer, uint32_t serial,
+                          struct wl_surface *surface, wl_fixed_t sx, wl_fixed_t sy) {
+    if (active_trigger) return;
+
+    for (int i = 0; i < num_surfaces; i++) {
+        if (edge_surfaces[i].surface == surface) {
+            active_trigger = 1;
+            if (edge_surfaces[i].is_left) {
+                send_hyprland_cmd("eval hl.dispatch(hl.dsp.focus({ workspace = 'e-1' }))");
+            } else {
+                send_hyprland_cmd("eval hl.dispatch(hl.dsp.focus({ workspace = 'e+1' }))");
+            }
+            break;
+        }
     }
-    
-    gtk_layer_set_layer(GTK_WINDOW(win), GTK_LAYER_SHELL_LAYER_OVERLAY);
-    gtk_layer_set_anchor(GTK_WINDOW(win), is_left ? GTK_LAYER_SHELL_EDGE_LEFT : GTK_LAYER_SHELL_EDGE_RIGHT, TRUE);
-    gtk_layer_set_anchor(GTK_WINDOW(win), GTK_LAYER_SHELL_EDGE_TOP, TRUE);
-    gtk_layer_set_anchor(GTK_WINDOW(win), GTK_LAYER_SHELL_EDGE_BOTTOM, TRUE);
-    
-    // 1-pixel wide edge trigger surface
-    gtk_widget_set_size_request(win, 1, -1);
-    
-    gtk_widget_set_events(win, GDK_ENTER_NOTIFY_MASK | GDK_LEAVE_NOTIFY_MASK);
-    
-    EdgeContext *ctx = g_new0(EdgeContext, 1);
-    ctx->is_left = is_left;
-    ctx->triggered = FALSE;
-    
-    g_signal_connect(win, "enter-notify-event", G_CALLBACK(on_enter_edge), ctx);
-    g_signal_connect(win, "leave-notify-event", G_CALLBACK(on_leave_edge), ctx);
-    
-    // Transparent background
-    GdkScreen *screen = gdk_screen_get_default();
-    GdkVisual *visual = gdk_screen_get_rgba_visual(screen);
-    if (visual && gdk_screen_is_composited(screen)) {
-        gtk_widget_set_visual(win, visual);
+}
+
+static void pointer_leave(void *data, struct wl_pointer *pointer, uint32_t serial,
+                          struct wl_surface *surface) {
+    active_trigger = 0; // Re-arm trigger upon inward movement
+}
+
+static void pointer_motion(void *data, struct wl_pointer *pointer, uint32_t time, wl_fixed_t sx, wl_fixed_t sy) {}
+static void pointer_button(void *data, struct wl_pointer *pointer, uint32_t serial, uint32_t time, uint32_t button, uint32_t state) {}
+static void pointer_axis(void *data, struct wl_pointer *pointer, uint32_t time, uint32_t axis, wl_fixed_t value) {}
+static void pointer_frame(void *data, struct wl_pointer *pointer) {}
+static void pointer_axis_source(void *data, struct wl_pointer *pointer, uint32_t axis_source) {}
+static void pointer_axis_stop(void *data, struct wl_pointer *pointer, uint32_t time, uint32_t axis) {}
+static void pointer_axis_discrete(void *data, struct wl_pointer *pointer, uint32_t axis, int32_t discrete) {}
+
+static const struct wl_pointer_listener pointer_listener = {
+    .enter = pointer_enter,
+    .leave = pointer_leave,
+    .motion = pointer_motion,
+    .button = pointer_button,
+    .axis = pointer_axis,
+    .frame = pointer_frame,
+    .axis_source = pointer_axis_source,
+    .axis_stop = pointer_axis_stop,
+    .axis_discrete = pointer_axis_discrete,
+};
+
+static void seat_capabilities(void *data, struct wl_seat *seat, uint32_t caps) {
+    if ((caps & WL_SEAT_CAPABILITY_POINTER) && !pointer) {
+        pointer = wl_seat_get_pointer(seat);
+        wl_pointer_add_listener(pointer, &pointer_listener, NULL);
     }
-    
-    gtk_widget_show_all(win);
+}
+
+static void seat_name(void *data, struct wl_seat *seat, const char *name) {}
+
+static const struct wl_seat_listener seat_listener = {
+    .capabilities = seat_capabilities,
+    .name = seat_name,
+};
+
+static void layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *surface,
+                                    uint32_t serial, uint32_t width, uint32_t height) {
+    zwlr_layer_surface_v1_ack_configure(surface, serial);
+}
+
+static void layer_surface_closed(void *data, struct zwlr_layer_surface_v1 *surface) {}
+
+static const struct zwlr_layer_surface_v1_listener layer_surface_listener = {
+    .configure = layer_surface_configure,
+    .closed = layer_surface_closed,
+};
+
+static struct wl_buffer *create_transparent_buffer(struct wl_shm *shm) {
+    int fd = memfd_create("shm-edge", MFD_CLOEXEC);
+    if (fd < 0) return NULL;
+    if (ftruncate(fd, 4) < 0) { close(fd); return NULL; }
+
+    uint32_t *data = mmap(NULL, 4, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (data == MAP_FAILED) { close(fd); return NULL; }
+    *data = 0x00000000;
+    munmap(data, 4);
+
+    struct wl_shm_pool *pool = wl_shm_create_pool(shm, fd, 4);
+    struct wl_buffer *buf = wl_shm_pool_create_buffer(pool, 0, 1, 1, 4, WL_SHM_FORMAT_ARGB8888);
+    wl_shm_pool_destroy(pool);
+    close(fd);
+    return buf;
+}
+
+static void registry_global(void *data, struct wl_registry *registry,
+                            uint32_t name, const char *interface, uint32_t version) {
+    if (strcmp(interface, wl_compositor_interface.name) == 0) {
+        compositor = wl_registry_bind(registry, name, &wl_compositor_interface, 4);
+    } else if (strcmp(interface, wl_shm_interface.name) == 0) {
+        shm = wl_registry_bind(registry, name, &wl_shm_interface, 1);
+    } else if (strcmp(interface, zwlr_layer_shell_v1_interface.name) == 0) {
+        layer_shell = wl_registry_bind(registry, name, &zwlr_layer_shell_v1_interface, 1);
+    } else if (strcmp(interface, wl_seat_interface.name) == 0) {
+        seat = wl_registry_bind(registry, name, &wl_seat_interface, 1);
+        wl_seat_add_listener(seat, &seat_listener, NULL);
+    } else if (strcmp(interface, wl_output_interface.name) == 0) {
+        struct wl_output *output = wl_registry_bind(registry, name, &wl_output_interface, 1);
+        if (num_surfaces < MAX_SURFACES) {
+            edge_surfaces[num_surfaces].output = output;
+        }
+    }
+}
+
+static void registry_global_remove(void *data, struct wl_registry *registry, uint32_t name) {}
+
+static const struct wl_registry_listener registry_listener = {
+    .global = registry_global,
+    .global_remove = registry_global_remove,
+};
+
+static void setup_edge_surface(struct wl_output *output, int is_left) {
+    if (!compositor || !layer_shell || num_surfaces >= MAX_SURFACES) return;
+
+    struct wl_surface *surface = wl_compositor_create_surface(compositor);
+    uint32_t anchor = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM |
+                      (is_left ? ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT : ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
+
+    struct zwlr_layer_surface_v1 *layer_surface = zwlr_layer_shell_v1_get_layer_surface(
+        layer_shell, surface, output, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "edge-switcher");
+
+    zwlr_layer_surface_v1_set_size(layer_surface, 1, 0);
+    zwlr_layer_surface_v1_set_anchor(layer_surface, anchor);
+    zwlr_layer_surface_v1_set_exclusive_zone(layer_surface, -1);
+    zwlr_layer_surface_v1_set_keyboard_interactivity(layer_surface, 0);
+    zwlr_layer_surface_v1_add_listener(layer_surface, &layer_surface_listener, NULL);
+
+    if (transparent_buf) {
+        wl_surface_attach(surface, transparent_buf, 0, 0);
+    }
+    wl_surface_commit(surface);
+
+    edge_surfaces[num_surfaces].surface = surface;
+    edge_surfaces[num_surfaces].layer_surface = layer_surface;
+    edge_surfaces[num_surfaces].is_left = is_left;
+    num_surfaces++;
 }
 
 int main(int argc, char *argv[]) {
-    // Single instance lock
     int lock_fd = open("/tmp/hypr-edge-switcher.lock", O_CREAT | O_RDWR, 0666);
     if (lock_fd >= 0 && flock(lock_fd, LOCK_EX | LOCK_NB) != 0) {
         return 0; // Already running
     }
 
-    gtk_init(&argc, &argv);
     init_socket_path();
-    
-    GdkDisplay *display = gdk_display_get_default();
+    fetch_monitor_topology();
+
+    display = wl_display_connect(NULL);
     if (!display) return 1;
-    
-    int n_monitors = gdk_display_get_n_monitors(display);
-    for (int i = 0; i < n_monitors; i++) {
-        GdkMonitor *m = gdk_display_get_monitor(display, i);
-        GdkRectangle geom;
-        gdk_monitor_get_geometry(m, &geom);
-        
-        if (is_outer_edge(display, &geom, TRUE)) {
-            create_edge_surface(display, m, &geom, TRUE);
+
+    registry = wl_display_get_registry(display);
+    wl_registry_add_listener(registry, &registry_listener, NULL);
+    wl_display_roundtrip(display);
+
+    if (shm) {
+        transparent_buf = create_transparent_buffer(shm);
+    }
+
+    int n_outputs = num_surfaces;
+    struct wl_output *outputs[MAX_SURFACES];
+    for (int i = 0; i < n_outputs; i++) {
+        outputs[i] = edge_surfaces[i].output;
+    }
+    num_surfaces = 0;
+
+    for (int i = 0; i < num_monitors; i++) {
+        MonitorInfo *m = &monitors[i];
+        struct wl_output *out = (i < n_outputs) ? outputs[i] : NULL;
+
+        if (is_outer_edge(m, 1)) {
+            setup_edge_surface(out, 1);
         }
-        if (is_outer_edge(display, &geom, FALSE)) {
-            create_edge_surface(display, m, &geom, FALSE);
+        if (is_outer_edge(m, 0)) {
+            setup_edge_surface(out, 0);
         }
     }
-    
-    gtk_main();
+
+    while (wl_display_dispatch(display) != -1) {
+        // Pure event-driven event loop sleeping in kernel epoll_wait
+    }
+
     return 0;
 }

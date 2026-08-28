@@ -51,6 +51,8 @@ hypr/hyprland-gui.lua
 hypr/workspaces.conf
 hypr/workspaces.lua
 hypr/scripts/hypr-edge-switcher
+hypr/scripts/wlr-layer-shell-unstable-v1-client-protocol.h
+hypr/scripts/wlr-layer-shell-unstable-v1-protocol.c
 
 # --- Lockfiles & Run State ---
 *.lock

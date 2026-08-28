@@ -30,14 +30,14 @@ A portable, modular Linux dotfiles repository designed for long-term backup and 
 
 ## ⚡ Hyprland Edge Workspace Switcher
 
-This repository contains an **event-driven mouse-edge workspace switcher** built for Hyprland 0.56.2+.
+This repository contains a **pure Wayland event-driven mouse-edge workspace switcher** built for Hyprland 0.56.2+.
 
 ### Architecture
-- **Event-Driven**: Built in C using `gtk-layer-shell` and `wlr-layer-shell`. Creates 1-pixel wide transparent overlay surfaces along outer screen boundaries.
-- **0.00% Idle CPU**: Sleeps in kernel `epoll_wait` when the cursor is anywhere on screen. Zero polling, zero high-frequency timers.
+- **Pure Wayland Client (`libwayland-client`)**: Eliminates heavy GTK/Qt runtime overhead. Memory footprint is ~5.6 MB RSS (down from ~31 MB).
+- **0.00% Idle CPU**: Sleeps in kernel `epoll_wait` via `wl_display_dispatch()`. Zero polling, zero high-frequency timers.
 - **Wayland Focus Semantics**: Uses `wl_pointer.enter` to trigger workspace switches (`e-1` / `e+1`) once per edge contact. Uses `wl_pointer.leave` to re-arm the trigger upon cursor inward movement.
-- **Direct UNIX Socket IPC**: Connects to `$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket.sock` for sub-millisecond execution without shell process overhead.
-- **Multi-Monitor Geometry**: Computes outer display layout boundaries automatically to ignore internal borders between side-by-side monitors.
+- **Direct UNIX Socket IPC**: Connects directly to `$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket.sock` for sub-millisecond execution without shell/subprocess overhead.
+- **Multi-Monitor Geometry**: Queries Hyprland IPC JSON monitor topology (`j/monitors`) at startup and computes outer display layout boundaries automatically to ignore internal borders between side-by-side monitors.
 
 ### Building the Helper
 The source code and Makefile are included in `hypr/scripts/`:
@@ -60,7 +60,7 @@ git clone <your-private-repo-url> ~/.config
 ### 2. Dependencies
 Ensure the following packages are installed on your Linux distribution:
 - **Compositor & Environment**: `hyprland`, `waybar`, `kitty`, `rofi-wayland`, `swaync`, `quickshell`
-- **Development & Build**: `gcc`, `make`, `pkg-config`, `gtk-layer-shell`, `gtk3`
+- **Development & Build**: `gcc`, `make`, `wayland-scanner`, `pkg-config`, `wayland-client`
 - **Shell & Tools**: `fish`, `neovim`, `fastfetch`, `oh-my-posh`
 
 ### 3. Machine-Specific Setup
