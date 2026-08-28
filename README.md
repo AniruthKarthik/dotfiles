@@ -4,10 +4,30 @@ A portable, modular Linux dotfiles repository designed for long-term backup and 
 
 ---
 
+## 🚀 Quick Start & Automated Installation
+
+To restore and set up this configuration on any Linux system (Arch, Fedora, Ubuntu/Debian):
+
+```bash
+# 1. Clone repository directly into ~/.config
+git clone https://github.com/AniruthKarthik/dotfiles.git ~/.config
+
+# 2. Run the automated installer script (installs fuzzel, hyprland, waybar, kitty, etc.)
+cd ~/.config && ./install.sh
+
+# 3. Reload Hyprland
+hyprctl reload
+```
+
+The `./install.sh` script automatically detects your distribution package manager (`pacman`, `dnf`, `apt`), installs all required applications (including `fuzzel`, `waybar`, `kitty`, `swaync`, `rofi`, compilation toolchains), and builds the C edge workspace switcher binary.
+
+---
+
 ## 📁 Repository Structure
 
 ```text
 ~/.config/
+├── install.sh            # One-click automated setup & package installer script
 ├── hypr/                 # Hyprland compositor configuration
 │   ├── hyprland.lua      # Main entry point for Hyprland configuration
 │   ├── custom.lua        # User custom overrides & autostart integrations
@@ -17,6 +37,7 @@ A portable, modular Linux dotfiles repository designed for long-term backup and 
 ├── kitty/                # Kitty terminal emulator configuration
 ├── quickshell/           # Quickshell widgets and bars
 ├── rofi/                 # Rofi application launcher configuration
+├── fuzzel/               # Fuzzel application launcher configuration
 ├── swaync/               # SwayNotificationCenter configuration
 ├── nvim/                 # Neovim editor configuration
 ├── fish/                 # Fish shell configuration & aliases
@@ -33,7 +54,7 @@ A portable, modular Linux dotfiles repository designed for long-term backup and 
 This repository contains a **pure Wayland event-driven mouse-edge workspace switcher** built for Hyprland 0.56.2+.
 
 ### Architecture
-- **Pure Wayland Client (`libwayland-client`)**: Eliminates heavy GTK/Qt runtime overhead. Memory footprint is ~5.6 MB RSS (down from ~31 MB).
+- **Pure Wayland Client (`libwayland-client`)**: Eliminates heavy GTK/Qt runtime overhead. Memory footprint is ~2.4 MB RSS.
 - **0.00% Idle CPU**: Sleeps in kernel `epoll_wait` via `wl_display_dispatch()`. Zero polling, zero high-frequency timers.
 - **Wayland Focus Semantics**: Uses `wl_pointer.enter` to trigger workspace switches (`e-1` / `e+1`) once per edge contact. Uses `wl_pointer.leave` to re-arm the trigger upon cursor inward movement.
 - **Direct UNIX Socket IPC**: Connects directly to `$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket.sock` for sub-millisecond execution without shell/subprocess overhead.
@@ -49,22 +70,17 @@ The binary `hypr-edge-switcher` is automatically launched by `hypr/custom.lua` w
 
 ---
 
-## ⚙️ Installation & Deployment
+## ⚙️ Dependencies & Package List
 
-### 1. Fresh System Setup
-Clone this repository directly to `~/.config`:
-```bash
-git clone <your-private-repo-url> ~/.config
-```
+Installed automatically by `./install.sh`:
+- **Compositors & Environments**: `hyprland`, `waybar`, `kitty`, `fuzzel`, `rofi-wayland`, `swaync`, `quickshell`
+- **Development & Build**: `gcc`, `make`, `wayland-scanner`, `wayland-protocols`, `wayland-client`
+- **Shell & System Tools**: `fish`, `neovim`, `fastfetch`, `oh-my-posh`, `grim`, `slurp`, `wl-clipboard`, `cliphist`
 
-### 2. Dependencies
-Ensure the following packages are installed on your Linux distribution:
-- **Compositor & Environment**: `hyprland`, `waybar`, `kitty`, `rofi-wayland`, `swaync`, `quickshell`
-- **Development & Build**: `gcc`, `make`, `wayland-scanner`, `pkg-config`, `wayland-client`
-- **Shell & Tools**: `fish`, `neovim`, `fastfetch`, `oh-my-posh`
+---
 
-### 3. Machine-Specific Setup
-Some settings (like screen resolutions and monitor coordinates) vary by hardware:
+## ⚙️ Machine-Specific Setup
+
 1. **Monitors**:
    Copy the template and set your display outputs:
    ```bash
@@ -83,21 +99,3 @@ The `.gitignore` in this repository automatically excludes:
 - Credentials & tokens (`gh/`, `.env`, `*_token`, `*.pem`, `*.key`)
 - Heavy application caches (`BraveSoftware/`, `mozilla/`, `Antigravity IDE/`)
 - Runtime lockfiles, sockets, logs, and compiled binaries (`hypr/scripts/hypr-edge-switcher`)
-
----
-
-## 🔄 Restoration on New Installs
-
-```bash
-# 1. Back up existing ~/.config if present
-mv ~/.config ~/.config.bak
-
-# 2. Clone repository
-git clone <your-git-url> ~/.config
-
-# 3. Build edge switcher
-make -C ~/.config/hypr/scripts
-
-# 4. Reload Hyprland
-hyprctl reload
-```
