@@ -1,0 +1,12 @@
+# Machine-Specific Monitor Configuration Template
+# Copy this file to monitors.conf and customize for your display hardware.
+#
+# Syntax: monitor=NAME,RESOLUTION@REFRESH,POSITION,SCALE
+# Example single monitor:
+# monitor=eDP-1,3200x2000@120.0,0x0,1.6
+#
+# Example dual monitor:
+# monitor=DP-1,1920x1080@144,0x0,1
+# monitor=DP-2,1920x1080@144,1920x0,1
+
+monitor=,preferred,auto,1

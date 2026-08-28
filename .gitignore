@@ -1,0 +1,57 @@
+# ==============================================================================
+# Dotfiles Repository .gitignore for ~/.config
+# ==============================================================================
+
+# --- Secrets and Credentials ---
+gh/
+secrets/
+*.pem
+*.key
+*.token
+*.env
+*.credentials
+*_token
+
+# --- Heavy Applications, Caches, & Application State ---
+Antigravity IDE/
+BraveSoftware/
+mozilla/
+context-bridge/
+dconf/
+go/
+gopls/
+lftp/
+matplotlib/
+mpv/
+nautilus/
+onlyoffice/
+session/
+systemd/
+vlc/
+yay/
+zed/
+pulse/
+
+# --- Application Caches & Logs ---
+**/cache/
+**/*.log
+**/*.tmp
+**/*.swp
+**/*.swo
+**/*.bak
+**/*~
+**/.DS_Store
+ml4w/cache/
+quickshell/cache/
+
+# --- Machine-Specific Generated Files & Compiled Artifacts ---
+hypr/monitors.conf
+hypr/monitors.lua
+hypr/hyprland-gui.lua
+hypr/workspaces.conf
+hypr/workspaces.lua
+hypr/scripts/hypr-edge-switcher
+
+# --- Lockfiles & Run State ---
+*.lock
+lazy-lock.json

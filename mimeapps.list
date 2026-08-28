@@ -1,0 +1,23 @@
+
+[Default Applications]
+application/pdf=okularApplication_pdf.desktop
+text/plain=nvim.desktop
+text/x-csrc=nvim.desktop
+text/x-c++src=nvim.desktop
+text/x-python=nvim.desktop
+text/x-java=nvim.desktop
+text/x-shellscript=nvim.desktop
+application/x-shellscript=nvim.desktop
+text/x-lua=nvim.desktop
+text/x-ini=nvim.desktop
+text/markdown=nvim.desktop
+text/x-yaml=nvim.desktop
+application/x-yaml=nvim.desktop
+text/x-toml=nvim.desktop
+application/toml=nvim.desktop
+text/x-json=nvim.desktop
+application/json=nvim.desktop
+text/x-rustsrc=nvim.desktop
+text/x-go=nvim.desktop
+text/xml=nvim.desktop
+application/xml=nvim.desktop
