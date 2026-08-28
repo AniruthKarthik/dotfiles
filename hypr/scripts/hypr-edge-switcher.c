@@ -66,6 +66,27 @@ static pid_t find_waybar_pid(void) {
     return pid;
 }
 
+static void init_waybar_state(void) {
+    char lock_path[512];
+    const char *home = getenv("HOME");
+    if (home) {
+        snprintf(lock_path, sizeof(lock_path), "%s/.cache/waybar_toggle.lock", home);
+        if (access(lock_path, F_OK) == 0) {
+            waybar_is_hidden = 0; // Manual lock file active: force visible
+            return;
+        }
+    }
+
+    pid_t pid = find_waybar_pid();
+    if (pid > 0) {
+        // Waybar is running. Hide it by default on daemon startup.
+        kill(pid, SIGUSR1);
+        waybar_is_hidden = 1;
+    } else {
+        waybar_is_hidden = 1;
+    }
+}
+
 static void set_waybar_visible(int show) {
     char lock_path[512];
     const char *home = getenv("HOME");
@@ -427,6 +448,7 @@ int main(int argc, char *argv[]) {
 
     init_socket_path();
     fetch_monitor_topology();
+    init_waybar_state(); // Initialize Waybar state (hidden by default)
 
     display = wl_display_connect(NULL);
     if (!display) return 1;
