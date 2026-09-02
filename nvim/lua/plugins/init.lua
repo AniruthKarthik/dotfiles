@@ -1,23 +1,30 @@
 return {
   {
     "nvim-treesitter/nvim-treesitter",
+    event = { "BufReadPost", "BufNewFile" },
+    cmd = { "TSInstall", "TSBufEnable", "TSBufDisable", "TSModuleInfo" },
+    build = ":TSUpdate",
     opts = {
-      ensure_installed = { "lua", "python", "javascript", "typescript", "c", "cpp", "go" },
-      highlight = { enable = true },
-      textobjects = {
-        select = {
-          enable = true,
-          lookahead = true,
-          keymaps = {
-            ["af"] = "@function.outer",
-            ["if"] = "@function.inner",
-            ["ac"] = "@class.outer",
-            ["ic"] = "@class.inner",
-          },
-        },
+      ensure_installed = {
+        "lua",
+        "python",
+        "javascript",
+        "typescript",
+        "c",
+        "cpp",
+        "go",
+        "markdown",
+        "markdown_inline",
+        "bash",
+        "vim",
+        "vimdoc",
       },
+      highlight = { enable = true },
       indent = { enable = false }, -- Explicitly disable Treesitter indentation
     },
+    config = function(_, opts)
+      require("nvim-treesitter.configs").setup(opts)
+    end,
   },
 
   -- Install Mason

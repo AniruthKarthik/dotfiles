@@ -61,7 +61,7 @@ opt.scrolloff = 5
 
 -- Enable Treesitter folding
 vim.opt.foldmethod = "expr"
-vim.opt.foldexpr = "nvim_treesitter#foldexpr()"
+vim.opt.foldexpr = "v:lua.vim.treesitter.foldexpr()"
 
 -- Don't auto-fold by default
 vim.opt.foldenable = false
