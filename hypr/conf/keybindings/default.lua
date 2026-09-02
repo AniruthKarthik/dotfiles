@@ -65,8 +65,8 @@ hl.bind(mainMod .. " + ALT + down", hl.dsp.window.swap({ direction = "d" }), { d
 -- Actions
 hl.bind(mainMod .. " + CTRL + R", hl.dsp.exec_cmd("hyprctl reload"), { description = "Reload Hyprland configuration" })
 hl.bind(mainMod .. " + SHIFT + A", hl.dsp.exec_cmd("~/.config/hypr/scripts/toggle-animations.sh"), { description = "Toggle animations" })
-hl.bind("PRINT", hl.dsp.exec_cmd("~/.config/hypr/scripts/flameshot.sh"), { description = "Take a screenshot with Flameshot (Lossless PNG)" })
-hl.bind(mainMod .. " + PRINT", hl.dsp.exec_cmd("~/.config/hypr/scripts/flameshot.sh"), { description = "Take a screenshot with Flameshot (Lossless PNG)" })
+hl.bind("PRINT", hl.dsp.exec_cmd("~/.config/hypr/scripts/screenshot-crisp.sh"), { description = "Take an ultra-crisp screenshot (Lossless PNG)" })
+hl.bind(mainMod .. " + PRINT", hl.dsp.exec_cmd("~/.config/hypr/scripts/screenshot-crisp.sh"), { description = "Take an ultra-crisp screenshot (Lossless PNG)" })
 hl.bind(mainMod .. " + ALT + F", hl.dsp.exec_cmd("~/.config/hypr/scripts/screenshot.sh --instant"), { description = "Take an instant full-screen screenshot" })
 hl.bind(mainMod .. " + ALT + S", hl.dsp.exec_cmd("~/.config/hypr/scripts/screenshot.sh --instant-area"), { description = "Take an instant area screenshot" })
 hl.bind(mainMod .. " + ALT + A", hl.dsp.exec_cmd("~/.config/hypr/scripts/text-extractor.sh"), { description = "Extract text from an area" })
