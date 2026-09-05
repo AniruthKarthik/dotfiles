@@ -66,6 +66,51 @@ static pid_t find_waybar_pid(void) {
     return pid;
 }
 
+static int is_waybar_visible_on_screen(void) {
+    if (socket_path[0] == '\0') init_socket_path();
+    if (socket_path[0] == '\0') return 0;
+
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return 0;
+
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path) - 1);
+
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        close(fd);
+        return 0;
+    }
+
+    // Hyprland IPC command "j/layers" (no newline) returns layer surface geometry JSON
+    write(fd, "j/layers", 8);
+
+    char buf[32768];
+    ssize_t total = 0;
+    ssize_t n = 0;
+    while ((n = read(fd, buf + total, sizeof(buf) - 1 - total)) > 0) {
+        total += n;
+    }
+    close(fd);
+
+    if (total <= 0) return 0;
+    buf[total] = '\0';
+
+    char *ptr = buf;
+    while ((ptr = strstr(ptr, "\"2\":")) != NULL) {
+        char *l3 = strstr(ptr, "\"3\":");
+        size_t len_to_check = l3 ? (size_t)(l3 - ptr) : strlen(ptr);
+        char *wb = strstr(ptr, "\"namespace\": \"waybar\"");
+        if (wb && (size_t)(wb - ptr) < len_to_check) {
+            return 1; // Waybar layer surface is mapped on top layer level "2" (visible)
+        }
+        ptr += 4;
+    }
+
+    return 0; // Waybar is not visible on top layer
+}
+
 static void init_waybar_state(void) {
     char lock_path[512];
     const char *home = getenv("HOME");
@@ -77,14 +122,18 @@ static void init_waybar_state(void) {
         }
     }
 
-    pid_t pid = find_waybar_pid();
-    if (pid > 0) {
-        // Waybar is running. Hide it by default on daemon startup.
-        kill(pid, SIGUSR1);
-        waybar_is_hidden = 1;
-    } else {
-        waybar_is_hidden = 1;
+    // Wait up to 1.5 seconds for Waybar process and layer surface to initialize
+    for (int i = 0; i < 15; i++) {
+        pid_t pid = find_waybar_pid();
+        if (pid > 0) {
+            if (is_waybar_visible_on_screen()) {
+                kill(pid, SIGUSR1);
+            }
+            break;
+        }
+        usleep(100000); // 100ms
     }
+    waybar_is_hidden = 1;
 }
 
 static void set_waybar_visible(int show) {
@@ -98,17 +147,23 @@ static void set_waybar_visible(int show) {
     }
 
     pid_t pid = find_waybar_pid();
+    int currently_visible = is_waybar_visible_on_screen();
+
     if (show) {
         if (pid <= 0) {
             system("~/.config/waybar/launch.sh >/dev/null 2>&1 &");
             waybar_is_hidden = 0;
-        } else if (waybar_is_hidden) {
+        } else if (!currently_visible) {
             kill(pid, SIGUSR1);
+            waybar_is_hidden = 0;
+        } else {
             waybar_is_hidden = 0;
         }
     } else {
-        if (pid > 0 && !waybar_is_hidden) {
+        if (pid > 0 && currently_visible) {
             kill(pid, SIGUSR1);
+            waybar_is_hidden = 1;
+        } else {
             waybar_is_hidden = 1;
         }
     }
